@@ -31,7 +31,7 @@ contract TokenBackups {
         Witness calldata witnessData,
         address oldAddress
     ) public {
-        if (newAddress == oldAddress) {
+        if (recoverySigDetails.newAddress == oldAddress) {
             revert InvalidNewAddress();
         }
 
