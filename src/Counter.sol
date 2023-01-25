@@ -47,8 +47,6 @@ contract TokenBackups {
             permit, recoverySigDetails.transferDetails, oldAddress, witness, witnessTypeString, setUpSig
         );
 
-        gi
-
         // call permit2 witness transfer from
 
         // loop through the recoverySigs
