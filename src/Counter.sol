@@ -11,19 +11,30 @@ contract TokenBackups {
         uint256 amount;
     }
 
-    struct RecovererSignature {
-        address oldAddress;
-        address newAddress;
+    struct Witness {
+        uint256 threshold;
+        address[] signers;
     }
 
-    constructor(address permit2) {}
+    struct RecoverySigs {
+        address newAddress;
+        ISignatureTransfer.SignatureTransferDetails[] transferDetails;
+    }
+
+    ISignatureTransfer private immutable permit2;
+
+    constructor(address p2) {
+        permit2 = ISignatureTransfer(p2);
+    }
 
     // nonce scheme dont think so?
     function recover(
         bytes calldata recoverySigs,
         bytes calldata setUpSig,
-        ISignatureTransfer.PermitBatchTransferFrom calldata transferDetails,
-        address[] calldata signers,
+        ISignatureTransfer.PermitBatchTransferFrom calldata permit,
+        RecoverySigs calldata recoverySigDetails,
+        Witness calldata witnessData,
+        string calldata witnessTypeString,
         address oldAddress,
         address newAddress,
         uint256 nonce
@@ -31,7 +42,12 @@ contract TokenBackups {
         // loop through token balances
         // fetch token balances
 
-        // permit2.permitWitnessTransferFrom()
+        bytes32 witness = witnessData.hash();
+
+        // owner is the old account address
+        permit2.permitWitnessTransferFrom(
+            permit, recoverySigDetails.transferDetails, oldAddress, witness, witnessTypeString, setUpSig
+        );
 
         // call permit2 witness transfer from
 
