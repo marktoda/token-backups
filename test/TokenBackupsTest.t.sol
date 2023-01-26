@@ -1,7 +1,6 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
-
 import {ERC20Mock} from "openzeppelin-contracts/contracts/mocks/ERC20Mock.sol";
 import {Permit2} from "permit2/src/Permit2.sol";
 import {BackupWitness, BackupWitnessLib} from "../src/BackupWitnessLib.sol";
@@ -52,7 +51,7 @@ contract TokenBackupsTest is Test {
         "PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,TokenBackups witness)TokenBackups(address[] signers,uint256 threshold)TokenPermissions(address token,uint256 amount)"
     );
 
-    uint256 nonce = 0;
+    uint256 nonce;
 
     struct PalInfo {
         address addr;
@@ -86,6 +85,7 @@ contract TokenBackupsTest is Test {
         friendWallet2 = vm.addr(friendPrivKey2);
 
         defaultAmount = 100 * 18;
+        nonce = 0;
 
         token0 = new ERC20Mock("Test Token0", "T0", seedWallet, defaultAmount);
         token1 = new ERC20Mock("Test Token1", "T1", seedWallet, defaultAmount);
@@ -104,6 +104,9 @@ contract TokenBackupsTest is Test {
 
         vm.startPrank(seedWallet);
         token0.approve(address(this), type(uint256).max);
+        token1.approve(address(this), type(uint256).max);
+        token2.approve(address(this), type(uint256).max);
+        token3.approve(address(this), type(uint256).max);
         vm.stopPrank();
 
         vm.startPrank(oldWallet);
@@ -120,7 +123,30 @@ contract TokenBackupsTest is Test {
         fundAccount(numTokens);
 
         // Build the permit batch data with all tokens in the wallet you want to backup.
-        ISignatureTransfer.PermitBatchTransferFrom memory permit = buildPermit(1);
+        ISignatureTransfer.PermitBatchTransferFrom memory permit = buildPermit(numTokens);
+
+        // Build the backup data for the permit with backup witness.
+        uint256 threshold = 1;
+        (BackupWitness memory witness, bytes memory sig) = buildBackup(1, threshold, permit);
+
+        ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
+        (bytes[] memory friendSigs, PalSignature memory palSigDetails) = gatherFriendSignatures(details, 2);
+
+        TokenBackups.Pal[] memory palData = new TokenBackups.Pal[](1);
+        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0);
+
+        assertEq(token0.balanceOf(oldWallet), defaultAmount);
+        backup.recover(palData, sig, permit, palSigDetails, witness, oldWallet);
+        assertEq(token0.balanceOf(newWallet), defaultAmount);
+    }
+
+    function testMultiTokenBackup() public {
+        // Fund wallet with some number of tokens.
+        uint256 numTokens = 4;
+        fundAccount(numTokens);
+
+        // Build the permit batch data with all tokens in the wallet you want to backup.
+        ISignatureTransfer.PermitBatchTransferFrom memory permit = buildPermit(numTokens);
 
         // Build the backup data for the permit with backup witness.
         uint256 threshold = 1;
@@ -133,8 +159,49 @@ contract TokenBackupsTest is Test {
         palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0);
 
         assertEq(token0.balanceOf(oldWallet), defaultAmount);
+        assertEq(token1.balanceOf(oldWallet), defaultAmount);
+        assertEq(token2.balanceOf(oldWallet), defaultAmount);
+        assertEq(token3.balanceOf(oldWallet), defaultAmount);
+
         backup.recover(palData, sig, permit, palSigDetails, witness, oldWallet);
+
         assertEq(token0.balanceOf(newWallet), defaultAmount);
+        assertEq(token1.balanceOf(newWallet), defaultAmount);
+        assertEq(token2.balanceOf(newWallet), defaultAmount);
+        assertEq(token3.balanceOf(newWallet), defaultAmount);
+    }
+
+    function testMultiTokenMultiSignerBackup() public {
+        // Fund wallet with some number of tokens.
+        uint256 numTokens = 4;
+        fundAccount(numTokens);
+
+        // Build the permit batch data with all tokens in the wallet you want to backup.
+        ISignatureTransfer.PermitBatchTransferFrom memory permit = buildPermit(numTokens);
+
+        // Build the backup data for the permit with backup witness.
+        uint256 threshold = 2;
+        uint256 numSigners = 4;
+        (BackupWitness memory witness, bytes memory sig) = buildBackup(numSigners, threshold, permit);
+
+        ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
+        (bytes[] memory friendSigs, PalSignature memory palSigDetails) = gatherFriendSignatures(details, threshold);
+
+        TokenBackups.Pal[] memory palData = new TokenBackups.Pal[](threshold);
+        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0);
+        palData[1] = TokenBackups.Pal(friendSigs[1], friendWallet1);
+
+        assertEq(token0.balanceOf(oldWallet), defaultAmount);
+        assertEq(token1.balanceOf(oldWallet), defaultAmount);
+        assertEq(token2.balanceOf(oldWallet), defaultAmount);
+        assertEq(token3.balanceOf(oldWallet), defaultAmount);
+
+        backup.recover(palData, sig, permit, palSigDetails, witness, oldWallet);
+
+        assertEq(token0.balanceOf(newWallet), defaultAmount);
+        assertEq(token1.balanceOf(newWallet), defaultAmount);
+        assertEq(token2.balanceOf(newWallet), defaultAmount);
+        assertEq(token3.balanceOf(newWallet), defaultAmount);
     }
 
     function getPermitBatchWitnessSignature(
@@ -188,10 +255,11 @@ contract TokenBackupsTest is Test {
         for (uint256 i = 0; i < numTokens; i++) {
             permitted[i] = ISignatureTransfer.TokenPermissions({token: address(tokens[i]), amount: maxAmount});
         }
+        uint256 useNonce = getNonce();
 
         return ISignatureTransfer.PermitBatchTransferFrom({
             permitted: permitted,
-            nonce: getNonce(),
+            nonce: useNonce,
             deadline: block.timestamp + 10000
         });
     }
@@ -207,7 +275,7 @@ contract TokenBackupsTest is Test {
     ) internal view returns (BackupWitness memory witness, bytes memory sig) {
         address[] memory signers = new address[](numSigners);
         for (uint256 i = 0; i < numSigners; i++) {
-            signers[i] = pals[0].addr;
+            signers[i] = pals[i].addr;
         }
 
         witness = BackupWitness({signers: signers, threshold: threshold});

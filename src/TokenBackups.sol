@@ -6,6 +6,7 @@ import {BackupWitnessLib, BackupWitness} from "./BackupWitnessLib.sol";
 import {PalSignature, PalSignatureLib} from "./PalSignatureLib.sol";
 import {IERC1271} from "./IERC1271.sol";
 import {EIP712} from "./EIP712.sol";
+import "forge-std/console2.sol";
 
 contract TokenBackups is EIP712 {
     using BackupWitnessLib for BackupWitness;
@@ -87,6 +88,7 @@ contract TokenBackups is EIP712 {
         for (uint256 i = 0; i < pals.length; ++i) {
             Pal calldata pal = pals[i];
             currentOwner = pal.addr;
+
             _verifySignature(pal.sig, _hashTypedData(msgHash), currentOwner);
 
             if (currentOwner <= lastOwner) {
@@ -128,6 +130,7 @@ contract TokenBackups is EIP712 {
             }
             address signer = ecrecover(hash, v, r, s);
             if (signer == address(0)) revert InvalidSignature();
+
             if (signer != claimedSigner) revert InvalidSigner();
         } else {
             bytes4 magicValue = IERC1271(claimedSigner).isValidSignature(hash, signature);
