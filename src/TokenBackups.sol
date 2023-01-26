@@ -6,7 +6,6 @@ import {BackupWitnessLib, BackupWitness} from "./BackupWitnessLib.sol";
 import {RecoveryInfo, PalSignatureLib} from "./PalSignatureLib.sol";
 import {IERC1271} from "./IERC1271.sol";
 import {EIP712} from "./EIP712.sol";
-import "forge-std/console2.sol";
 
 contract TokenBackups is EIP712 {
     using BackupWitnessLib for BackupWitness;
