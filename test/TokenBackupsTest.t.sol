@@ -53,13 +53,13 @@ contract TokenBackupsTest is Test {
 
     uint256 nonce = 0;
 
-    struct Pal {
+    struct PalInfo {
         address addr;
         uint256 key;
     }
 
     mapping(uint256 => ERC20Mock) tokens;
-    mapping(uint256 => Pal) pals;
+    mapping(uint256 => PalInfo) pals;
 
     function setUp() public {
         permit2 = new Permit2();
@@ -96,10 +96,10 @@ contract TokenBackupsTest is Test {
         tokens[2] = token2;
         tokens[3] = token3;
 
-        pals[0] = Pal({addr: friendWallet0, key: friendPrivKey0});
-        pals[1] = Pal({addr: friendWallet1, key: friendPrivKey1});
-        pals[2] = Pal({addr: friendWallet2, key: friendPrivKey2});
-        pals[3] = Pal({addr: friendWallet3, key: friendPrivKey3});
+        pals[0] = PalInfo({addr: friendWallet0, key: friendPrivKey0});
+        pals[1] = PalInfo({addr: friendWallet1, key: friendPrivKey1});
+        pals[2] = PalInfo({addr: friendWallet2, key: friendPrivKey2});
+        pals[3] = PalInfo({addr: friendWallet3, key: friendPrivKey3});
 
         vm.startPrank(seedWallet);
         token0.approve(address(this), type(uint256).max);
@@ -128,10 +128,8 @@ contract TokenBackupsTest is Test {
         ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
         (bytes[] memory friendSigs, PalSignature memory palSigDetails) = gatherFriendSignatures(details, 1);
 
-        address[] memory claimedSigners = new address[](1);
-        claimedSigners[0] = friendWallet0;
-
-        TokenBackups.Pals memory palData = TokenBackups.Pals({sigs: friendSigs, addresses: claimedSigners});
+        TokenBackups.Pal[] memory palData = new TokenBackups.Pal[](1);
+        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0);
 
         assertEq(token0.balanceOf(oldWallet), defaultAmount);
         backup.recover(palData, sig, permit, palSigDetails, witness, oldWallet);

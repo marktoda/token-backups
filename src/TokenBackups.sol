@@ -25,9 +25,9 @@ contract TokenBackups {
     // Sigs from your friends!!!
     // Both inputs should be sorted in ascending order by address.
     // TODO maybe unroll for operators
-    struct Pals {
-        bytes[] sigs;
-        address[] addresses;
+    struct Pal {
+        bytes sig;
+        address addr;
     }
 
     ISignatureTransfer private immutable _PERMIT2;
@@ -37,7 +37,7 @@ contract TokenBackups {
     }
 
     function recover(
-        Pals calldata pals,
+        Pal[] calldata pals,
         bytes calldata backup,
         ISignatureTransfer.PermitBatchTransferFrom calldata permitData,
         PalSignature calldata palData,
@@ -48,7 +48,7 @@ contract TokenBackups {
             revert InvalidNewAddress();
         }
 
-        _verifySignatures(pals.sigs, palData, witnessData, pals.addresses);
+        _verifySignatures(pals, palData, witnessData);
 
         // owner is the old account address
         _PERMIT2.permitWitnessTransferFrom(
@@ -64,10 +64,9 @@ contract TokenBackups {
     // revert if invalid
     // Note: sigs must be sorted
     function _verifySignatures(
-        bytes[] calldata sigs,
+        Pal[] calldata pals,
         PalSignature calldata details,
-        BackupWitness calldata witness,
-        address[] memory claimedSigners
+        BackupWitness calldata witness
     ) internal view {
         if (witness.threshold == 0) {
             revert InvalidThreshold();
@@ -77,7 +76,7 @@ contract TokenBackups {
             revert InvalidSignerLength();
         }
 
-        if (sigs.length != witness.threshold) {
+        if (pals.length != witness.threshold) {
             revert NotEnoughSignatures();
         }
 
@@ -85,9 +84,10 @@ contract TokenBackups {
         address currentOwner;
         bytes32 hash = details.hash();
 
-        for (uint256 i = 0; i < sigs.length; ++i) {
-            currentOwner = claimedSigners[i];
-            _verifySignature(sigs[i], hash, currentOwner);
+        for (uint256 i = 0; i < pals.length; ++i) {
+            Pal calldata pal = pals[i];
+            currentOwner = pal.addr;
+            _verifySignature(pal.sig, hash, currentOwner);
 
             if (currentOwner <= lastOwner) {
                 revert NotSorted();
