@@ -13,6 +13,6 @@ contract DeployTokenBackups is Script {
         vm.startBroadcast();
         tokenBackup = new TokenBackups(permit2);
         vm.stopBroadcast();
-        console2.log("TokenBackup deployed:", address(tokenBackup));g
+        console2.log("TokenBackup deployed:", address(tokenBackup));
     }
 }
