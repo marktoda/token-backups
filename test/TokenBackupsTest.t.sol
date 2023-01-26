@@ -133,10 +133,11 @@ contract TokenBackupsTest is Test {
         (BackupWitness memory witness, bytes memory sig) = buildBackup(1, threshold, permit);
 
         ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
-        (bytes[] memory friendSigs, PalSignature memory palSigDetails) = gatherFriendSignatures(details, 2);
+        (bytes[] memory friendSigs, RecoveryInfo memory palSigDetails) =
+            gatherFriendSignatures(details, 2, block.timestamp + 100);
 
         TokenBackups.Pal[] memory palData = new TokenBackups.Pal[](1);
-        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0);
+        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0, block.timestamp + 100);
 
         assertEq(token0.balanceOf(oldWallet), defaultAmount);
         backup.recover(palData, sig, permit, palSigDetails, witness);
@@ -156,7 +157,8 @@ contract TokenBackupsTest is Test {
         (BackupWitness memory witness, bytes memory sig) = buildBackup(1, threshold, permit);
 
         ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
-        (bytes[] memory friendSigs, RecoveryInfo memory palSigDetails) = gatherFriendSignatures(details, 1, block.timestamp + 100);
+        (bytes[] memory friendSigs, RecoveryInfo memory palSigDetails) =
+            gatherFriendSignatures(details, 1, block.timestamp + 100);
 
         TokenBackups.Pal[] memory palData = new TokenBackups.Pal[](1);
         palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0, block.timestamp + 100);
@@ -187,11 +189,12 @@ contract TokenBackupsTest is Test {
         (BackupWitness memory witness, bytes memory sig) = buildBackup(numSigners, threshold, permit);
 
         ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
-        (bytes[] memory friendSigs, PalSignature memory palSigDetails) = gatherFriendSignatures(details, threshold);
+        (bytes[] memory friendSigs, RecoveryInfo memory palSigDetails) =
+            gatherFriendSignatures(details, threshold, block.timestamp + 100);
 
         TokenBackups.Pal[] memory palData = new TokenBackups.Pal[](threshold);
-        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0);
-        palData[1] = TokenBackups.Pal(friendSigs[1], friendWallet1);
+        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0, block.timestamp + 100);
+        palData[1] = TokenBackups.Pal(friendSigs[1], friendWallet1, block.timestamp + 100);
 
         assertEq(token0.balanceOf(oldWallet), defaultAmount);
         assertEq(token1.balanceOf(oldWallet), defaultAmount);
@@ -219,7 +222,8 @@ contract TokenBackupsTest is Test {
         (BackupWitness memory witness, bytes memory sig) = buildBackup(1, threshold, permit);
 
         ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
-        (bytes[] memory friendSigs, RecoveryInfo memory palSigDetails) = gatherFriendSignatures(details, 1, block.timestamp - 1);
+        (bytes[] memory friendSigs, RecoveryInfo memory palSigDetails) =
+            gatherFriendSignatures(details, 1, block.timestamp - 1);
 
         TokenBackups.Pal[] memory palData = new TokenBackups.Pal[](1);
         palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0, block.timestamp - 1);
@@ -241,7 +245,8 @@ contract TokenBackupsTest is Test {
         (BackupWitness memory witness, bytes memory sig) = buildBackup(1, threshold, permit);
 
         ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
-        (bytes[] memory friendSigs, RecoveryInfo memory palSigDetails) = gatherFriendSignatures(details, 1, block.timestamp - 1);
+        (bytes[] memory friendSigs, RecoveryInfo memory palSigDetails) =
+            gatherFriendSignatures(details, 1, block.timestamp - 1);
 
         TokenBackups.Pal[] memory palData = new TokenBackups.Pal[](1);
         palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0, block.timestamp + 100);
@@ -328,11 +333,11 @@ contract TokenBackupsTest is Test {
         sig = getPermitBatchWitnessSignature(permit, witness.hash(), DOMAIN_SEPARATOR);
     }
 
-    function gatherFriendSignatures(ISignatureTransfer.SignatureTransferDetails[] memory details, uint256 numSigs, uint256 expiry)
-        internal
-        view
-        returns (bytes[] memory sigs, RecoveryInfo memory palSigs)
-    {
+    function gatherFriendSignatures(
+        ISignatureTransfer.SignatureTransferDetails[] memory details,
+        uint256 numSigs,
+        uint256 expiry
+    ) internal view returns (bytes[] memory sigs, RecoveryInfo memory palSigs) {
         palSigs = RecoveryInfo({oldAddress: oldWallet, transferDetails: details});
         bytes32 hashed = palSigs.hash(expiry);
         sigs = new bytes[](numSigs);

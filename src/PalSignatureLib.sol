@@ -15,7 +15,11 @@ library PalSignatureLib {
     bytes32 internal constant SIGNATURE_TRANSFER_DETAILS_TYPE_HASH = keccak256(SIGNATURE_TRANSFER_DETAILS_TYPE);
 
     bytes internal constant RECOVERY_SIGS_TYPE = abi.encodePacked(
-        "RecoveryInfo(", "address oldAddress,", "uint256 sigDeadline,", "SignatureTransferDetails[] details)", SIGNATURE_TRANSFER_DETAILS_TYPE
+        "RecoveryInfo(",
+        "address oldAddress,",
+        "uint256 sigDeadline,",
+        "SignatureTransferDetails[] details)",
+        SIGNATURE_TRANSFER_DETAILS_TYPE
     );
 
     bytes32 internal constant RECOVERY_SIGS_TYPE_HASH = keccak256(RECOVERY_SIGS_TYPE);
