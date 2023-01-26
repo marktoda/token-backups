@@ -4,14 +4,17 @@ import "forge-std/Test.sol";
 import {ERC20Mock} from "openzeppelin-contracts/contracts/mocks/ERC20Mock.sol";
 import {Permit2} from "permit2/src/Permit2.sol";
 import {BackupWitness, BackupWitnessLib} from "../src/BackupWitnessLib.sol";
-import {PalSignature, PalSignatureLib} from "../src/PalSignatureLib.sol";
+import {RecoveryInfo, PalSignatureLib} from "../src/PalSignatureLib.sol";
 import {TokenBackups} from "../src/TokenBackups.sol";
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
 import {PermitHash} from "permit2/src/libraries/PermitHash.sol";
 
 contract TokenBackupsTest is Test {
     using BackupWitnessLib for BackupWitness;
-    using PalSignatureLib for PalSignature;
+    using PalSignatureLib for RecoveryInfo;
+
+    error SignatureExpired();
+    error InvalidSigner();
 
     address oldWallet;
     uint256 oldWalletPrivKey;
@@ -130,13 +133,14 @@ contract TokenBackupsTest is Test {
         (BackupWitness memory witness, bytes memory sig) = buildBackup(1, threshold, permit);
 
         ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
-        (bytes[] memory friendSigs, PalSignature memory palSigDetails) = gatherFriendSignatures(details, 2);
+        (bytes[] memory friendSigs, RecoveryInfo memory palSigDetails) =
+            gatherFriendSignatures(details, 2, block.timestamp + 100);
 
         TokenBackups.Pal[] memory palData = new TokenBackups.Pal[](1);
-        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0);
+        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0, block.timestamp + 100);
 
         assertEq(token0.balanceOf(oldWallet), defaultAmount);
-        backup.recover(palData, sig, permit, palSigDetails, witness, oldWallet);
+        backup.recover(palData, sig, permit, palSigDetails, witness);
         assertEq(token0.balanceOf(newWallet), defaultAmount);
     }
 
@@ -153,18 +157,18 @@ contract TokenBackupsTest is Test {
         (BackupWitness memory witness, bytes memory sig) = buildBackup(1, threshold, permit);
 
         ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
-        (bytes[] memory friendSigs, PalSignature memory palSigDetails) = gatherFriendSignatures(details, 1);
+        (bytes[] memory friendSigs, RecoveryInfo memory palSigDetails) =
+            gatherFriendSignatures(details, 1, block.timestamp + 100);
 
         TokenBackups.Pal[] memory palData = new TokenBackups.Pal[](1);
-        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0);
+        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0, block.timestamp + 100);
 
         assertEq(token0.balanceOf(oldWallet), defaultAmount);
         assertEq(token1.balanceOf(oldWallet), defaultAmount);
         assertEq(token2.balanceOf(oldWallet), defaultAmount);
         assertEq(token3.balanceOf(oldWallet), defaultAmount);
 
-        backup.recover(palData, sig, permit, palSigDetails, witness, oldWallet);
-
+        backup.recover(palData, sig, permit, palSigDetails, witness);
         assertEq(token0.balanceOf(newWallet), defaultAmount);
         assertEq(token1.balanceOf(newWallet), defaultAmount);
         assertEq(token2.balanceOf(newWallet), defaultAmount);
@@ -185,23 +189,70 @@ contract TokenBackupsTest is Test {
         (BackupWitness memory witness, bytes memory sig) = buildBackup(numSigners, threshold, permit);
 
         ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
-        (bytes[] memory friendSigs, PalSignature memory palSigDetails) = gatherFriendSignatures(details, threshold);
+        (bytes[] memory friendSigs, RecoveryInfo memory palSigDetails) =
+            gatherFriendSignatures(details, threshold, block.timestamp + 100);
 
         TokenBackups.Pal[] memory palData = new TokenBackups.Pal[](threshold);
-        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0);
-        palData[1] = TokenBackups.Pal(friendSigs[1], friendWallet1);
+        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0, block.timestamp + 100);
+        palData[1] = TokenBackups.Pal(friendSigs[1], friendWallet1, block.timestamp + 100);
 
         assertEq(token0.balanceOf(oldWallet), defaultAmount);
         assertEq(token1.balanceOf(oldWallet), defaultAmount);
         assertEq(token2.balanceOf(oldWallet), defaultAmount);
         assertEq(token3.balanceOf(oldWallet), defaultAmount);
 
-        backup.recover(palData, sig, permit, palSigDetails, witness, oldWallet);
+        backup.recover(palData, sig, permit, palSigDetails, witness);
 
         assertEq(token0.balanceOf(newWallet), defaultAmount);
         assertEq(token1.balanceOf(newWallet), defaultAmount);
         assertEq(token2.balanceOf(newWallet), defaultAmount);
         assertEq(token3.balanceOf(newWallet), defaultAmount);
+    }
+
+    function testExpiredPalSig() public {
+        // Fund wallet with some number of tokens.
+        uint256 numTokens = 1;
+        fundAccount(numTokens);
+
+        // Build the permit batch data with all tokens in the wallet you want to backup.
+        ISignatureTransfer.PermitBatchTransferFrom memory permit = buildPermit(1);
+
+        // Build the backup data for the permit with backup witness.
+        uint256 threshold = 1;
+        (BackupWitness memory witness, bytes memory sig) = buildBackup(1, threshold, permit);
+
+        ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
+        (bytes[] memory friendSigs, RecoveryInfo memory palSigDetails) =
+            gatherFriendSignatures(details, 1, block.timestamp - 1);
+
+        TokenBackups.Pal[] memory palData = new TokenBackups.Pal[](1);
+        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0, block.timestamp - 1);
+
+        vm.expectRevert(SignatureExpired.selector);
+        backup.recover(palData, sig, permit, palSigDetails, witness);
+    }
+
+    function testExpiryIncludedInSig() public {
+        // Fund wallet with some number of tokens.
+        uint256 numTokens = 1;
+        fundAccount(numTokens);
+
+        // Build the permit batch data with all tokens in the wallet you want to backup.
+        ISignatureTransfer.PermitBatchTransferFrom memory permit = buildPermit(1);
+
+        // Build the backup data for the permit with backup witness.
+        uint256 threshold = 1;
+        (BackupWitness memory witness, bytes memory sig) = buildBackup(1, threshold, permit);
+
+        ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
+        (bytes[] memory friendSigs, RecoveryInfo memory palSigDetails) =
+            gatherFriendSignatures(details, 1, block.timestamp - 1);
+
+        TokenBackups.Pal[] memory palData = new TokenBackups.Pal[](1);
+        palData[0] = TokenBackups.Pal(friendSigs[0], friendWallet0, block.timestamp + 100);
+
+        vm.expectRevert(InvalidSigner.selector);
+        backup.recover(palData, sig, permit, palSigDetails, witness);
     }
 
     function getPermitBatchWitnessSignature(
@@ -282,13 +333,13 @@ contract TokenBackupsTest is Test {
         sig = getPermitBatchWitnessSignature(permit, witness.hash(), DOMAIN_SEPARATOR);
     }
 
-    function gatherFriendSignatures(ISignatureTransfer.SignatureTransferDetails[] memory details, uint256 numSigs)
-        internal
-        view
-        returns (bytes[] memory sigs, PalSignature memory palSigs)
-    {
-        palSigs = PalSignature({newAddress: newWallet, transferDetails: details});
-        bytes32 hashed = palSigs.hash();
+    function gatherFriendSignatures(
+        ISignatureTransfer.SignatureTransferDetails[] memory details,
+        uint256 numSigs,
+        uint256 expiry
+    ) internal view returns (bytes[] memory sigs, RecoveryInfo memory palSigs) {
+        palSigs = RecoveryInfo({oldAddress: oldWallet, transferDetails: details});
+        bytes32 hashed = palSigs.hash(expiry);
         sigs = new bytes[](numSigs);
         for (uint256 i = 0; i < numSigs; i++) {
             sigs[i] = getFriendSignature(pals[i].key, hashed);

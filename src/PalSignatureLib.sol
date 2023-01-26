@@ -3,8 +3,8 @@ pragma solidity ^0.8.16;
 
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
 
-struct PalSignature {
-    address newAddress;
+struct RecoveryInfo {
+    address oldAddress;
     ISignatureTransfer.SignatureTransferDetails[] transferDetails;
 }
 
@@ -15,7 +15,11 @@ library PalSignatureLib {
     bytes32 internal constant SIGNATURE_TRANSFER_DETAILS_TYPE_HASH = keccak256(SIGNATURE_TRANSFER_DETAILS_TYPE);
 
     bytes internal constant RECOVERY_SIGS_TYPE = abi.encodePacked(
-        "PalSignature(", "address newAddress,", "SignatureTransferDetails[] details)", SIGNATURE_TRANSFER_DETAILS_TYPE
+        "RecoveryInfo(",
+        "address oldAddress,",
+        "uint256 sigDeadline,",
+        "SignatureTransferDetails[] details)",
+        SIGNATURE_TRANSFER_DETAILS_TYPE
     );
 
     bytes32 internal constant RECOVERY_SIGS_TYPE_HASH = keccak256(RECOVERY_SIGS_TYPE);
@@ -33,8 +37,7 @@ library PalSignatureLib {
     }
 
     /// @notice hash the given witness
-    // TODO add domain sep
-    function hash(PalSignature memory data) internal pure returns (bytes32) {
-        return keccak256(abi.encode(RECOVERY_SIGS_TYPE_HASH, data.newAddress, hash(data.transferDetails)));
+    function hash(RecoveryInfo memory data, uint256 sigDeadline) internal pure returns (bytes32) {
+        return keccak256(abi.encode(RECOVERY_SIGS_TYPE_HASH, data.oldAddress, sigDeadline, hash(data.transferDetails)));
     }
 }

@@ -3,14 +3,14 @@ pragma solidity ^0.8.13;
 
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
 import {BackupWitnessLib, BackupWitness} from "./BackupWitnessLib.sol";
-import {PalSignature, PalSignatureLib} from "./PalSignatureLib.sol";
+import {RecoveryInfo, PalSignatureLib} from "./PalSignatureLib.sol";
 import {IERC1271} from "./IERC1271.sol";
 import {EIP712} from "./EIP712.sol";
 import "forge-std/console2.sol";
 
 contract TokenBackups is EIP712 {
     using BackupWitnessLib for BackupWitness;
-    using PalSignatureLib for PalSignature;
+    using PalSignatureLib for RecoveryInfo;
 
     error NotEnoughSignatures();
     error InvalidThreshold();
@@ -21,15 +21,16 @@ contract TokenBackups is EIP712 {
     error InvalidSignatureLength();
     error InvalidContractSignature();
     error InvalidSignerLength();
+    error SignatureExpired();
 
     bytes32 constant UPPER_BIT_MASK = (0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff);
 
     // Sigs from your friends!!!
     // Both inputs should be sorted in ascending order by address.
-    // TODO maybe unroll for operators
     struct Pal {
         bytes sig;
         address addr;
+        uint256 sigDeadline;
     }
 
     ISignatureTransfer private immutable _PERMIT2;
@@ -42,21 +43,16 @@ contract TokenBackups is EIP712 {
         Pal[] calldata pals,
         bytes calldata backup,
         ISignatureTransfer.PermitBatchTransferFrom calldata permitData,
-        PalSignature calldata palData,
-        BackupWitness calldata witnessData,
-        address oldAddress
+        RecoveryInfo calldata recoveryInfo,
+        BackupWitness calldata witnessData
     ) public {
-        if (palData.newAddress == oldAddress) {
-            revert InvalidNewAddress();
-        }
-
-        _verifySignatures(pals, palData, witnessData);
+        _verifySignatures(pals, recoveryInfo, witnessData);
 
         // owner is the old account address
         _PERMIT2.permitWitnessTransferFrom(
             permitData,
-            palData.transferDetails,
-            oldAddress,
+            recoveryInfo.transferDetails,
+            recoveryInfo.oldAddress,
             witnessData.hash(),
             BackupWitnessLib.PERMIT2_WITNESS_TYPE,
             backup
@@ -65,7 +61,7 @@ contract TokenBackups is EIP712 {
 
     // revert if invalid
     // Note: sigs must be sorted
-    function _verifySignatures(Pal[] calldata pals, PalSignature calldata details, BackupWitness calldata witness)
+    function _verifySignatures(Pal[] calldata pals, RecoveryInfo calldata details, BackupWitness calldata witness)
         internal
         view
     {
@@ -83,10 +79,14 @@ contract TokenBackups is EIP712 {
 
         address lastOwner = address(0);
         address currentOwner;
-        bytes32 msgHash = details.hash();
 
         for (uint256 i = 0; i < pals.length; ++i) {
             Pal calldata pal = pals[i];
+            if (pal.sigDeadline < block.timestamp) {
+                revert SignatureExpired();
+            }
+            bytes32 msgHash = details.hash(pal.sigDeadline);
+
             currentOwner = pal.addr;
 
             _verifySignature(pal.sig, _hashTypedData(msgHash), currentOwner);
