@@ -46,6 +46,7 @@ contract TokenBackupsTest is Test {
     uint256 defaultAmount = 100 * 18;
 
     bytes32 DOMAIN_SEPARATOR;
+    bytes32 TOKEN_BACKUPS_DOMAIN_SEPARATOR;
 
     bytes32 constant FULL_EXAMPLE_WITNESS_BATCH_TYPEHASH = keccak256(
         "PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,TokenBackups witness)TokenBackups(address[] signers,uint256 threshold)TokenPermissions(address token,uint256 amount)"
@@ -63,10 +64,10 @@ contract TokenBackupsTest is Test {
 
     function setUp() public {
         permit2 = new Permit2();
+        backup = new TokenBackups(address(permit2));
 
         DOMAIN_SEPARATOR = permit2.DOMAIN_SEPARATOR();
-
-        backup = new TokenBackups(address(permit2));
+        TOKEN_BACKUPS_DOMAIN_SEPARATOR = backup.DOMAIN_SEPARATOR();
 
         seedWallet = makeAddr("seedWallet");
 
@@ -167,8 +168,8 @@ contract TokenBackupsTest is Test {
         return bytes.concat(r, s, bytes1(v));
     }
 
-    function getFriendSignature(uint256 pk, bytes32 msgHash) internal pure returns (bytes memory sig) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, msgHash);
+    function getFriendSignature(uint256 pk, bytes32 msgHash) internal view returns (bytes memory sig) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, _hashTypedData(msgHash));
         return bytes.concat(r, s, bytes1(v));
     }
 
@@ -237,5 +238,9 @@ contract TokenBackupsTest is Test {
             recoveredAmount = tokens[i].balanceOf(oldWallet);
             details[i] = ISignatureTransfer.SignatureTransferDetails({to: newWallet, requestedAmount: recoveredAmount});
         }
+    }
+
+    function _hashTypedData(bytes32 msgHash) public view returns (bytes32 fullTypedHash) {
+        return keccak256(abi.encodePacked("\x19\x01", TOKEN_BACKUPS_DOMAIN_SEPARATOR, msgHash));
     }
 }

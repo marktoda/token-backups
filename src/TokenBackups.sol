@@ -5,8 +5,9 @@ import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol"
 import {BackupWitnessLib, BackupWitness} from "./BackupWitnessLib.sol";
 import {PalSignature, PalSignatureLib} from "./PalSignatureLib.sol";
 import {IERC1271} from "./IERC1271.sol";
+import {EIP712} from "./EIP712.sol";
 
-contract TokenBackups {
+contract TokenBackups is EIP712 {
     using BackupWitnessLib for BackupWitness;
     using PalSignatureLib for PalSignature;
 
@@ -63,11 +64,10 @@ contract TokenBackups {
 
     // revert if invalid
     // Note: sigs must be sorted
-    function _verifySignatures(
-        Pal[] calldata pals,
-        PalSignature calldata details,
-        BackupWitness calldata witness
-    ) internal view {
+    function _verifySignatures(Pal[] calldata pals, PalSignature calldata details, BackupWitness calldata witness)
+        internal
+        view
+    {
         if (witness.threshold == 0) {
             revert InvalidThreshold();
         }
@@ -82,12 +82,12 @@ contract TokenBackups {
 
         address lastOwner = address(0);
         address currentOwner;
-        bytes32 hash = details.hash();
+        bytes32 msgHash = details.hash();
 
         for (uint256 i = 0; i < pals.length; ++i) {
             Pal calldata pal = pals[i];
             currentOwner = pal.addr;
-            _verifySignature(pal.sig, hash, currentOwner);
+            _verifySignature(pal.sig, _hashTypedData(msgHash), currentOwner);
 
             if (currentOwner <= lastOwner) {
                 revert NotSorted();
