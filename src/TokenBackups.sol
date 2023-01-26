@@ -2,13 +2,13 @@
 pragma solidity ^0.8.13;
 
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
-import {WitnessLib, Witness} from "./WitnessLib.sol";
-import {RecoverySigs, RecoverySigsLib} from "./RecoverySigsLib.sol";
+import {BackupWitnessLib, BackupWitness} from "./BackupWitnessLib.sol";
+import {PalSignature, PalSignatureLib} from "./PalSignatureLib.sol";
 import {IERC1271} from "./IERC1271.sol";
 
 contract TokenBackups {
-    using WitnessLib for Witness;
-    using RecoverySigsLib for RecoverySigs;
+    using BackupWitnessLib for BackupWitness;
+    using PalSignatureLib for PalSignature;
 
     error NotEnoughSignatures();
     error InvalidThreshold();
@@ -22,10 +22,12 @@ contract TokenBackups {
 
     bytes32 constant UPPER_BIT_MASK = (0x7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff);
 
-    // both inputs should be sorted in ascending order by address
-    struct RecoverDetails {
-        bytes[] recoverySigs;
-        address[] claimedSigners;
+    // Sigs from your friends!!!
+    // Both inputs should be sorted in ascending order by address.
+    // TODO maybe unroll for operators
+    struct Pals {
+        bytes[] sigs;
+        address[] addresses;
     }
 
     ISignatureTransfer private immutable _PERMIT2;
@@ -35,24 +37,27 @@ contract TokenBackups {
     }
 
     function recover(
-        RecoverDetails calldata sigAndSigner,
-        bytes calldata setUpSig,
-        ISignatureTransfer.PermitBatchTransferFrom calldata permit,
-        RecoverySigs calldata recoverySigDetails,
-        Witness calldata witnessData,
+        Pals calldata pals,
+        bytes calldata backup,
+        ISignatureTransfer.PermitBatchTransferFrom calldata permitData,
+        PalSignature calldata palData,
+        BackupWitness calldata witnessData,
         address oldAddress
     ) public {
-        if (recoverySigDetails.newAddress == oldAddress) {
+        if (palData.newAddress == oldAddress) {
             revert InvalidNewAddress();
         }
 
-        _verifySignatures(sigAndSigner.recoverySigs, recoverySigDetails, witnessData, sigAndSigner.claimedSigners);
-
-        bytes32 witness = witnessData.hash();
+        _verifySignatures(pals.sigs, palData, witnessData, pals.addresses);
 
         // owner is the old account address
         _PERMIT2.permitWitnessTransferFrom(
-            permit, recoverySigDetails.transferDetails, oldAddress, witness, WitnessLib.PERMIT2_WITNESS_TYPE, setUpSig
+            permitData,
+            palData.transferDetails,
+            oldAddress,
+            witnessData.hash(),
+            BackupWitnessLib.PERMIT2_WITNESS_TYPE,
+            backup
         );
     }
 
@@ -60,8 +65,8 @@ contract TokenBackups {
     // Note: sigs must be sorted
     function _verifySignatures(
         bytes[] calldata sigs,
-        RecoverySigs calldata details,
-        Witness calldata witness,
+        PalSignature calldata details,
+        BackupWitness calldata witness,
         address[] memory claimedSigners
     ) internal view {
         if (witness.threshold == 0) {

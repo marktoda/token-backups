@@ -1,18 +1,18 @@
 pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
-import "forge-std/console2.sol";
+
 import {ERC20Mock} from "openzeppelin-contracts/contracts/mocks/ERC20Mock.sol";
 import {Permit2} from "permit2/src/Permit2.sol";
-import {Witness, WitnessLib} from "../src/WitnessLib.sol";
-import {RecoverySigs, RecoverySigsLib} from "../src/RecoverySigsLib.sol";
+import {BackupWitness, BackupWitnessLib} from "../src/BackupWitnessLib.sol";
+import {PalSignature, PalSignatureLib} from "../src/PalSignatureLib.sol";
 import {TokenBackups} from "../src/TokenBackups.sol";
 import {ISignatureTransfer} from "permit2/src/interfaces/ISignatureTransfer.sol";
 import {PermitHash} from "permit2/src/libraries/PermitHash.sol";
 
 contract TokenBackupsTest is Test {
-    using WitnessLib for Witness;
-    using RecoverySigsLib for RecoverySigs;
+    using BackupWitnessLib for BackupWitness;
+    using PalSignatureLib for PalSignature;
 
     address oldWallet;
     uint256 oldWalletPrivKey;
@@ -20,10 +20,25 @@ contract TokenBackupsTest is Test {
     address newWallet;
     uint256 newWalletPrivKey;
 
-    address friendWallet;
-    uint256 friendPrivKey;
+    address friendWallet0;
+    uint256 friendPrivKey0;
+
+    address friendWallet1;
+    uint256 friendPrivKey1;
+
+    address friendWallet2;
+    uint256 friendPrivKey2;
+
+    address friendWallet3;
+    uint256 friendPrivKey3;
+
+    address seedWallet;
 
     ERC20Mock token0;
+    ERC20Mock token1;
+    ERC20Mock token2;
+    ERC20Mock token3;
+
     Permit2 permit2;
     TokenBackups backup;
 
@@ -36,6 +51,16 @@ contract TokenBackupsTest is Test {
         "PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,TokenBackups witness)TokenBackups(address[] signers,uint256 threshold)TokenPermissions(address token,uint256 amount)"
     );
 
+    uint256 nonce = 0;
+
+    struct Pal {
+        address addr;
+        uint256 key;
+    }
+
+    mapping(uint256 => ERC20Mock) tokens;
+    mapping(uint256 => Pal) pals;
+
     function setUp() public {
         permit2 = new Permit2();
 
@@ -43,74 +68,81 @@ contract TokenBackupsTest is Test {
 
         backup = new TokenBackups(address(permit2));
 
+        seedWallet = makeAddr("seedWallet");
+
         oldWalletPrivKey = 0x12341234;
         oldWallet = vm.addr(oldWalletPrivKey);
-
         newWalletPrivKey = 0x987987;
         newWallet = vm.addr(newWalletPrivKey);
 
-        friendPrivKey = 0x56785678;
-        friendWallet = vm.addr(friendPrivKey);
+        friendPrivKey0 = 0x56785678;
+        friendWallet0 = vm.addr(friendPrivKey0);
+
+        friendPrivKey1 = 0x11111;
+        friendWallet1 = vm.addr(friendPrivKey1);
+
+        friendPrivKey2 = 0x22222;
+        friendWallet2 = vm.addr(friendPrivKey2);
 
         defaultAmount = 100 * 18;
 
-        token0 = new ERC20Mock("Test Token0", "T0", oldWallet, defaultAmount);
+        token0 = new ERC20Mock("Test Token0", "T0", seedWallet, defaultAmount);
+        token1 = new ERC20Mock("Test Token1", "T1", seedWallet, defaultAmount);
+        token2 = new ERC20Mock("Test Token2", "T2", seedWallet, defaultAmount);
+        token3 = new ERC20Mock("Test Token2", "T2", seedWallet, defaultAmount);
 
-        vm.prank(oldWallet);
+        tokens[0] = token0;
+        tokens[1] = token1;
+        tokens[2] = token2;
+        tokens[3] = token3;
+
+        pals[0] = Pal({addr: friendWallet0, key: friendPrivKey0});
+        pals[1] = Pal({addr: friendWallet1, key: friendPrivKey1});
+        pals[2] = Pal({addr: friendWallet2, key: friendPrivKey2});
+        pals[3] = Pal({addr: friendWallet3, key: friendPrivKey3});
+
+        vm.startPrank(seedWallet);
+        token0.approve(address(this), type(uint256).max);
+        vm.stopPrank();
+
+        vm.startPrank(oldWallet);
         token0.approve(address(permit2), type(uint256).max);
+        token1.approve(address(permit2), type(uint256).max);
+        token2.approve(address(permit2), type(uint256).max);
+        token3.approve(address(permit2), type(uint256).max);
+        vm.stopPrank();
     }
 
     function testSimpleTokenBackup() public {
-        // build the permit batch data
-        ISignatureTransfer.TokenPermissions[] memory permitted = new ISignatureTransfer.TokenPermissions[](1);
-        permitted[0] = ISignatureTransfer.TokenPermissions({token: address(token0), amount: maxAmount});
+        // Fund wallet with some number of tokens.
+        uint256 numTokens = 1;
+        fundAccount(numTokens);
 
-        ISignatureTransfer.PermitBatchTransferFrom memory permit = ISignatureTransfer.PermitBatchTransferFrom({
-            permitted: permitted,
-            nonce: 1,
-            deadline: block.timestamp + 10000
-        });
+        // Build the permit batch data with all tokens in the wallet you want to backup.
+        ISignatureTransfer.PermitBatchTransferFrom memory permit = buildPermit(1);
 
-        // build the witness data with the signer and the threshold
-        address[] memory signers = new address[](1);
-        signers[0] = friendWallet;
-        Witness memory w = Witness({signers: signers, threshold: 1});
-        bytes32 hashedWitness = WitnessLib.hash(w);
+        // Build the backup data for the permit with backup witness.
+        uint256 threshold = 1;
+        (BackupWitness memory witness, bytes memory sig) = buildBackup(1, threshold, permit);
 
-        bytes memory sig = getPermitBatchWitnessSignature(permit, oldWalletPrivKey, hashedWitness, DOMAIN_SEPARATOR);
-
-        uint256 recoveredAmount = token0.balanceOf(oldWallet);
-        ISignatureTransfer.SignatureTransferDetails[] memory transferDetails =
-            new ISignatureTransfer.SignatureTransferDetails[](1);
-        transferDetails[0] =
-            ISignatureTransfer.SignatureTransferDetails({to: newWallet, requestedAmount: recoveredAmount});
-
-        RecoverySigs memory friendSigDetails = RecoverySigs({newAddress: newWallet, transferDetails: transferDetails});
-        bytes32 hashedFriendSig = friendSigDetails.hash();
-
-        bytes memory friendSig = getFriendSignature(hashedFriendSig);
-
-        bytes[] memory friendSigs = new bytes[](1);
-        friendSigs[0] = friendSig;
+        ISignatureTransfer.SignatureTransferDetails[] memory details = buildTokenTransferDetails(numTokens);
+        (bytes[] memory friendSigs, PalSignature memory palSigDetails) = gatherFriendSignatures(details, 1);
 
         address[] memory claimedSigners = new address[](1);
-        claimedSigners[0] = friendWallet;
+        claimedSigners[0] = friendWallet0;
 
-        TokenBackups.RecoverDetails memory recoverDetails =
-            TokenBackups.RecoverDetails({recoverySigs: friendSigs, claimedSigners: claimedSigners});
+        TokenBackups.Pals memory palData = TokenBackups.Pals({sigs: friendSigs, addresses: claimedSigners});
 
         assertEq(token0.balanceOf(oldWallet), defaultAmount);
-
-        backup.recover(recoverDetails, sig, permit, friendSigDetails, w, oldWallet);
+        backup.recover(palData, sig, permit, palSigDetails, witness, oldWallet);
         assertEq(token0.balanceOf(newWallet), defaultAmount);
     }
 
     function getPermitBatchWitnessSignature(
         ISignatureTransfer.PermitBatchTransferFrom memory permit,
-        uint256 privateKey,
         bytes32 witness,
         bytes32 domainSeparator
-    ) internal returns (bytes memory sig) {
+    ) internal view returns (bytes memory sig) {
         bytes32[] memory tokenPermissions = new bytes32[](permit.permitted.length);
         for (uint256 i = 0; i < permit.permitted.length; ++i) {
             tokenPermissions[i] = keccak256(abi.encode(PermitHash._TOKEN_PERMISSIONS_TYPEHASH, permit.permitted[i]));
@@ -137,8 +169,75 @@ contract TokenBackupsTest is Test {
         return bytes.concat(r, s, bytes1(v));
     }
 
-    function getFriendSignature(bytes32 msgHash) internal returns (bytes memory sig) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(friendPrivKey, msgHash);
+    function getFriendSignature(uint256 pk, bytes32 msgHash) internal pure returns (bytes memory sig) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, msgHash);
         return bytes.concat(r, s, bytes1(v));
+    }
+
+    function fundAccount(uint256 numTokens) internal {
+        for (uint256 i = 0; i < numTokens; i++) {
+            tokens[i].transferFrom(seedWallet, oldWallet, defaultAmount);
+        }
+    }
+
+    function buildPermit(uint256 numTokens)
+        internal
+        returns (ISignatureTransfer.PermitBatchTransferFrom memory permit)
+    {
+        ISignatureTransfer.TokenPermissions[] memory permitted = new ISignatureTransfer.TokenPermissions[](numTokens);
+        // lol max num tokens is 4
+        for (uint256 i = 0; i < numTokens; i++) {
+            permitted[i] = ISignatureTransfer.TokenPermissions({token: address(tokens[i]), amount: maxAmount});
+        }
+
+        return ISignatureTransfer.PermitBatchTransferFrom({
+            permitted: permitted,
+            nonce: getNonce(),
+            deadline: block.timestamp + 10000
+        });
+    }
+
+    function getNonce() internal returns (uint256) {
+        return nonce++;
+    }
+
+    function buildBackup(
+        uint256 numSigners,
+        uint256 threshold,
+        ISignatureTransfer.PermitBatchTransferFrom memory permit
+    ) internal view returns (BackupWitness memory witness, bytes memory sig) {
+        address[] memory signers = new address[](numSigners);
+        for (uint256 i = 0; i < numSigners; i++) {
+            signers[i] = pals[0].addr;
+        }
+
+        witness = BackupWitness({signers: signers, threshold: threshold});
+        sig = getPermitBatchWitnessSignature(permit, witness.hash(), DOMAIN_SEPARATOR);
+    }
+
+    function gatherFriendSignatures(ISignatureTransfer.SignatureTransferDetails[] memory details, uint256 numSigs)
+        internal
+        view
+        returns (bytes[] memory sigs, PalSignature memory palSigs)
+    {
+        palSigs = PalSignature({newAddress: newWallet, transferDetails: details});
+        bytes32 hashed = palSigs.hash();
+        sigs = new bytes[](numSigs);
+        for (uint256 i = 0; i < numSigs; i++) {
+            sigs[i] = getFriendSignature(pals[i].key, hashed);
+        }
+    }
+
+    function buildTokenTransferDetails(uint256 numTokens)
+        internal
+        view
+        returns (ISignatureTransfer.SignatureTransferDetails[] memory details)
+    {
+        details = new ISignatureTransfer.SignatureTransferDetails[](numTokens);
+        uint256 recoveredAmount;
+        for (uint256 i = 0; i < numTokens; i++) {
+            recoveredAmount = tokens[i].balanceOf(oldWallet);
+            details[i] = ISignatureTransfer.SignatureTransferDetails({to: newWallet, requestedAmount: recoveredAmount});
+        }
     }
 }
