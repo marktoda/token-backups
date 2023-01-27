@@ -9,6 +9,7 @@ contract EIP712 {
     bytes32 private immutable _CACHED_DOMAIN_SEPARATOR;
     uint256 private immutable _CACHED_CHAIN_ID;
 
+    bytes32 private constant _VERSION_HASH = keccak256("1");
     bytes32 private constant _HASHED_NAME = keccak256("TokenBackups");
     bytes32 private constant _TYPE_HASH =
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
@@ -28,7 +29,7 @@ contract EIP712 {
 
     /// @notice Builds a domain separator using the current chainId and contract address.
     function _buildDomainSeparator(bytes32 typeHash, bytes32 nameHash) private view returns (bytes32) {
-        return keccak256(abi.encode(typeHash, nameHash, "1", block.chainid, address(this)));
+        return keccak256(abi.encode(typeHash, nameHash, _VERSION_HASH, block.chainid, address(this)));
     }
 
     /// @notice Creates an EIP-712 typed data hash
